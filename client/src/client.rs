@@ -30,7 +30,7 @@ use wasm_bindgen_futures::spawn_local;
 
 use crate::database::Database;
 use crate::errors::NodeError;
-use crate::node::Node;
+use crate::node::{Node, BridgeEvent};
 
 #[cfg(not(target_arch = "wasm32"))]
 use crate::rpc::Rpc;
@@ -595,11 +595,15 @@ impl<DB: Database> Client<DB> {
         self.node.read().await.get_coinbase()
     }
 
-    // pub async fn get_latest_bridge_events(&self, block: BlockTag) -> Result<H256> {
-    //     self.node.read().await.get_latest_bridge_events(block)
-    // }
+    pub async fn get_bridge_events(&mut self) -> Result<Vec<BridgeEvent>> {
+        self.node.read().await.get_bridge_events()
+    }
 
-    pub async fn verify_bridge_events(&self, block: BlockTag) -> Result<H256> {
-        self.node.read().await.get_block_hash(block)
+    async fn verify_bridge_events(&mut self, events: Vec<U256>) -> bool {
+        self.node.read().await.verify_bridge_events(events)
+    }
+
+    async fn cleanup_bridge_events(&mut self, events: Vec<U256>) {
+        self.node.write().await.cleanup_bridge_events(events)
     }
 }

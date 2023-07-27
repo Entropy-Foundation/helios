@@ -595,7 +595,7 @@ impl<DB: Database> Client<DB> {
         self.node.read().await.get_coinbase()
     }
 
-    pub async fn get_bridge_events(&mut self) -> Result<Vec<BridgeEvent>> {
+    pub async fn get_bridge_events(&mut self) -> Vec<BridgeEvent> {
         self.node.read().await.get_bridge_events()
     }
 

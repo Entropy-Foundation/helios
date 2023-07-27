@@ -144,8 +144,8 @@ impl Node {
     }
 
     // TODO: Should return events only after event with given ID?
-    pub fn get_bridge_events(&self) -> Result<Vec<BridgeEvent>> {
-        return Ok(self.verified_event_cache.values().cloned().collect());
+    pub fn get_bridge_events(&self) -> Vec<BridgeEvent> {
+        return self.verified_event_cache.values().cloned().collect();
     }
 
     pub fn verify_bridge_events(&self, events: Vec<U256>) -> bool {

@@ -119,14 +119,16 @@ impl Node {
         return self.verified_event_cache.values().cloned().collect();
     }
 
-    pub fn verify_bridge_events(&self, events: Vec<U256>) -> bool {
-        return events.iter().all(|id| self.verified_event_cache.contains_key(&id));
+    pub fn verify_bridge_events(&self, events: Vec<BridgeEvent>) -> bool {
+        return events.iter().all(
+            |event| self.verified_event_cache.contains_key(&event.global_action_id)
+        );
     }
 
     // Should only be invoked with events that have been included in a block that has been finalized by the SMR.
-    pub fn cleanup_bridge_events(&mut self, events: Vec<U256>) {
-        for id in events {
-            self.verified_event_cache.remove(&id);
+    pub fn cleanup_bridge_events(&mut self, events: Vec<BridgeEvent>) {
+        for event in events {
+            self.verified_event_cache.remove(&event.global_action_id);
         }
     }
 

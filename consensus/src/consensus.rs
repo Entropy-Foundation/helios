@@ -218,7 +218,7 @@ impl<R: ConsensusRpc> ConsensusClient<R> {
             .rpc
             .get_bootstrap(&self.initial_checkpoint)
             .await
-            .map_err(|_| eyre!("could not fetch bootstrap"))?;
+            .map_err(|e| eyre!("could not fetch bootstrap: {e}"))?;
 
         let is_valid = self.is_valid_checkpoint(bootstrap.header.slot);
 

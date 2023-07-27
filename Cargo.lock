@@ -563,6 +563,7 @@ dependencies = [
  "jsonrpsee",
  "log",
  "serde",
+ "serde_json",
  "ssz-rs",
  "thiserror",
  "tokio",

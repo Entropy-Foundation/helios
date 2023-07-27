@@ -23,7 +23,7 @@ use super::types::{Account, ExecutionBlock};
 
 // We currently limit the max number of logs to fetch,
 // to avoid blocking the client for too long.
-const MAX_SUPPORTED_LOGS_NUMBER: usize = 5;
+const MAX_SUPPORTED_LOGS_NUMBER: usize = 50;
 
 #[derive(Clone)]
 pub struct ExecutionClient<R: ExecutionRpc> {
@@ -209,6 +209,7 @@ impl<R: ExecutionRpc> ExecutionClient<R> {
     ) -> Result<Option<TransactionReceipt>> {
         let receipt = self.rpc.get_transaction_receipt(tx_hash).await?;
         if receipt.is_none() {
+            log::info!("Could not get receipt for tx from RPC");
             return Ok(None);
         }
 
@@ -216,6 +217,7 @@ impl<R: ExecutionRpc> ExecutionClient<R> {
         let block_number = receipt.block_number.unwrap().as_u64();
         let payload = payloads.get(&block_number);
         if payload.is_none() {
+            log::info!("Could not get payload for tx block. Receipt block no {}. Have payloads for: {:?}", block_number, payloads.keys());
             return Ok(None);
         }
 
@@ -291,10 +293,28 @@ impl<R: ExecutionRpc> ExecutionClient<R> {
         filter: &Filter,
         payloads: &BTreeMap<u64, ExecutionPayload>,
     ) -> Result<Vec<Log>> {
+        let f = self.get_logs_filter(filter, payloads);
+        let logs = self.rpc.get_logs(&f).await?;
+        log::info!("Retrieved {} logs from RPC", logs.len());
+
+        if logs.len() > MAX_SUPPORTED_LOGS_NUMBER {
+            return Err(
+                ExecutionError::TooManyLogsToProve(logs.len(), MAX_SUPPORTED_LOGS_NUMBER).into(),
+            );
+        }
+
+        Ok(self.verify_logs(logs, payloads).await?)
+    }
+
+    fn get_logs_filter(
+        &self,
+        filter: &Filter,
+        payloads: &BTreeMap<u64, ExecutionPayload>,
+    ) -> Filter {
         let filter = filter.clone();
 
         // avoid fetching logs for a block helios hasn't seen yet
-        let filter = if filter.get_to_block().is_none() && filter.get_block_hash().is_none() {
+        if filter.get_to_block().is_none() && filter.get_block_hash().is_none() {
             let block = *payloads.last_key_value().unwrap().0;
             let filter = filter.to_block(block);
             if filter.get_from_block().is_none() {
@@ -304,16 +324,28 @@ impl<R: ExecutionRpc> ExecutionClient<R> {
             }
         } else {
             filter
-        };
-
-        let logs = self.rpc.get_logs(&filter).await?;
-        if logs.len() > MAX_SUPPORTED_LOGS_NUMBER {
-            return Err(
-                ExecutionError::TooManyLogsToProve(logs.len(), MAX_SUPPORTED_LOGS_NUMBER).into(),
-            );
         }
+    }
 
-        for (_pos, log) in logs.iter().enumerate() {
+    pub async fn get_logs_unlimited(
+        &self,
+        filter: &Filter,
+        payloads: &BTreeMap<u64, ExecutionPayload>,
+    ) -> Result<Vec<Log>> {
+        let f = self.get_logs_filter(filter, payloads);
+        let logs = self.rpc.get_logs(&f).await?;
+        log::info!("Retrieved {} logs from RPC", logs.len());
+        Ok(self.verify_logs(logs, payloads).await?)
+    }
+
+    pub async fn verify_logs(
+        &self,
+        rpc_logs: Vec<Log>,
+        payloads: &BTreeMap<u64, ExecutionPayload>
+    ) -> Result<Vec<Log>> {
+        for (_pos, log) in rpc_logs.iter().enumerate() {
+            log::info!("Started proving log {}", _pos);
+
             // For every log
             // Get the hash of the tx that generated it
             let tx_hash = log
@@ -342,8 +374,10 @@ impl<R: ExecutionRpc> ExecutionClient<R> {
                 )
                 .into());
             }
+
+            log::info!("Proved log {}", _pos);
         }
-        Ok(logs)
+        Ok(rpc_logs)
     }
 
     pub async fn get_fee_history(

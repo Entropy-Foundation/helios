@@ -526,6 +526,10 @@ impl<DB: Database> Client<DB> {
         self.node.read().await.get_block_number()
     }
 
+    pub async fn get_block_hash(&self, block: BlockTag) -> Result<H256> {
+        self.node.read().await.get_block_hash(block)
+    }
+
     pub async fn get_fee_history(
         &self,
         block_count: u64,
@@ -589,5 +593,13 @@ impl<DB: Database> Client<DB> {
 
     pub async fn get_coinbase(&self) -> Result<Address> {
         self.node.read().await.get_coinbase()
+    }
+
+    // pub async fn get_latest_bridge_events(&self, block: BlockTag) -> Result<H256> {
+    //     self.node.read().await.get_latest_bridge_events(block)
+    // }
+
+    pub async fn verify_bridge_events(&self, block: BlockTag) -> Result<H256> {
+        self.node.read().await.get_block_hash(block)
     }
 }

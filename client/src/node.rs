@@ -2,9 +2,10 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::time::Duration;
 
+use ethers::abi::RawLog;
 use ethers::prelude::{Address, U256};
 use ethers::types::{
-    FeeHistory, Filter, Log, SyncProgress, SyncingStatus, Transaction, TransactionReceipt, H256,
+    FeeHistory, Filter, Log, SyncProgress, SyncingStatus, Transaction, TransactionReceipt, H256, U64
 };
 use eyre::{eyre, Result};
 
@@ -30,7 +31,43 @@ pub struct Node {
     finalized_payloads: BTreeMap<u64, ExecutionPayload>,
     current_slot: Option<u64>,
     pub history_size: usize,
+    
+    last_processed: u64,
+    // Map of verified BridgeEvents indexed by their global_action_id, which is
+    // an identifier intended to be unique across all chains.
+    verified_event_cache: BTreeMap<U256, BridgeEvent>,
+    // Map of verified logs indexed by (block_no, tx_index, log_index)
+    // verified_log_cache: BTreeMap<(U64, U64, U256), Log>,
 }
+
+
+use ethers::abi::Log as DecodedLog;
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BridgeEvent {
+    amount: U256,
+    #[serde(rename = "conversionDecimals")]
+    conversion_decimals: U256,
+    #[serde(rename = "conversionRate")]
+    conversion_rate: U256,
+    #[serde(rename = "foreignAddress")]
+    foreign_address: String,
+    #[serde(rename = "foreignChainId")]
+    foreign_chain_id: U256,
+    from: Address,
+    #[serde(rename = "globalActionId")]
+    global_action_id: U256,
+}
+
+impl TryFrom<DecodedLog> for BridgeEvent {
+    type Error = serde_json::Error;
+
+    fn try_from(log: DecodedLog) -> Result<Self, Self::Error> {
+        let json = serde_json::to_string(&log)?;
+        serde_json::from_str(&json)
+    }
+} 
 
 impl Node {
     pub fn new(config: Arc<Config>) -> Result<Self, NodeError> {
@@ -55,6 +92,9 @@ impl Node {
             finalized_payloads,
             current_slot: None,
             history_size: 64,
+
+            last_processed: 0,
+            verified_event_cache: BTreeMap::new(),
         })
     }
 
@@ -75,15 +115,25 @@ impl Node {
             .await
             .map_err(NodeError::ConsensusSyncError)?;
 
-        self.update_payloads().await
+        self.update_payloads().await?;
+
+        // Check for new events
+        log::info!("Syncing initial events...");
+        self.check_latest_events(true).await.map_err(NodeError::ConsensusAdvanceError)
     }
 
     pub async fn advance(&mut self) -> Result<(), NodeError> {
+        log::info!("Starting advance...");
         self.consensus
             .advance()
             .await
             .map_err(NodeError::ConsensusAdvanceError)?;
-        self.update_payloads().await
+        log::info!("Updating payloads...");
+        self.update_payloads().await?;
+
+        // Check for new events
+        log::info!("Checking for new events...");
+        self.check_latest_events(false).await.map_err(NodeError::ConsensusAdvanceError)
     }
 
     pub fn duration_until_next_update(&self) -> Duration {
@@ -91,6 +141,96 @@ impl Node {
             .duration_until_next_update()
             .to_std()
             .unwrap()
+    }
+
+    // TODO: Should return events only after event with given ID?
+    async fn get_bridge_events(&mut self) -> Result<Vec<BridgeEvent>> {
+        return Ok(self.verified_event_cache.values().cloned().collect());
+    }
+
+    async fn verify_bridge_events(&mut self, events: Vec<U256>) -> bool {
+        return events.iter().all(|id| self.verified_event_cache.contains_key(&id));
+    }
+
+    // Should only be invoked with events that have been included in a block that has been finalized by the SMR.
+    async fn cleanup_bridge_events(&mut self, events: Vec<U256>) {
+        for id in events {
+            self.verified_event_cache.remove(&id);
+        }
+    }
+
+    async fn check_latest_events(&mut self, initial_sync: bool) -> Result<()> {
+        // TODO: Add address
+        let eth_vault_contract_addr = "0x05fdBac96C17026c71681150aa44Cbd0DDDd3374".parse::<Address>().unwrap();
+        let human_readable_event_abi = [
+            "event Bridgeless(uint256 globalActionId, address from, string foreignAddress, uint256 foreignChainId, uint256 amount, uint256 conversionRate, uint256 conversionDecimals)"
+        ];
+        let abi = ethers::abi::parse_abi(&human_readable_event_abi).unwrap();
+        let bridge_event = abi.event("Bridgeless").unwrap();
+
+        log::info!("Have {} payloads during check", self.payloads.len());
+
+        // Newest block in our current history that we haven't already processed. 
+        // BTreeMap keys are sorted, so find works here.
+        if let Some(start_block) = self.payloads.keys().find(|k| **k > self.last_processed) {
+            // Newest block in our current history.
+            if let Some(end_block) = self.payloads.last_key_value() {
+                log::info!(
+                    "Attempting to retrieve logs for blocks: {}-{}",
+                    *start_block,
+                    *end_block.0
+                );
+
+                let vault_event_filter = Filter::new()
+                    .from_block(*start_block)
+                    .to_block(*end_block.0)
+                    .address(eth_vault_contract_addr);
+
+                // TODO: Seems like RPC node might not be returning the logs for the latest payloads sometimes.
+                // Might need to rely on finalised blocks instead, which it should hopefully always have complete
+                // data for.
+                let latest_vault_event_logs = 
+                    if initial_sync {
+                        self.execution.get_logs_unlimited(&vault_event_filter, &self.payloads).await?
+                    } else {
+                        self.execution.get_logs(&vault_event_filter, &self.payloads).await?
+                    };
+
+                log::info!(
+                    "Received {} new logs",
+                    latest_vault_event_logs.len(),
+                );
+
+                // Parse the new logs and add the events to the cache.
+                for log in latest_vault_event_logs {
+                    match (log.block_number, log.transaction_index, log.log_index) {
+                        (Some(block_no), Some(tx_index), Some(log_index)) => {
+                            let id = (block_no, tx_index, log_index);
+                            // TODO: Remove
+                            // self.verified_log_cache.insert(id, log);
+
+                            let raw_log = RawLog::from(log);
+                            let decoded_log = bridge_event.parse_log(raw_log)?;
+                            let event = BridgeEvent::try_from(decoded_log)?;
+                            self.verified_event_cache.insert(event.global_action_id, event);
+                            
+                        },
+                        _ => log::warn!("Missing block number or transaction index for log: {:?}", log)
+                    }
+                }
+
+                log::info!(
+                    "Have {} events in cache.",
+                    self.verified_event_cache.len()
+                );
+
+                self.last_processed = *end_block.0;
+            }
+            // else: Empty history
+        }
+        // else: Empty history
+
+        Ok(())
     }
 
     async fn update_payloads(&mut self) -> Result<(), NodeError> {
@@ -123,15 +263,23 @@ impl Node {
             .get_payloads(start_slot, latest_header.slot)
             .await
             .map_err(NodeError::ConsensusPayloadError)?;
+
+        log::info!("Received {} new payloads", backfill_payloads.len());
+
         for payload in backfill_payloads {
+            // log::info!("Received payload for block: {}", payload.block_number());
             self.payloads.insert(*payload.block_number(), payload);
         }
+
+        log::info!("Have {} payloads", self.payloads.len());
 
         self.current_slot = Some(latest_header.slot);
 
         while self.payloads.len() > self.history_size {
             self.payloads.pop_first();
         }
+
+        log::info!("Have {} payloads after prune", self.payloads.len());
 
         // only save one finalized block per epoch
         // finality updates only occur on epoch boundaries
@@ -285,6 +433,18 @@ impl Node {
 
         let payload = self.get_payload(BlockTag::Latest)?;
         Ok(*payload.block_number())
+    }
+
+    pub fn get_block_hash(&self, block: BlockTag) -> Result<H256> {
+        match block {
+            BlockTag::Latest => self.check_head_age()?,
+            _ => {}
+        }
+
+        let payload = self.get_payload(block)?;
+        // Block hash in payload is parsed as Bytes32 instead of H256 for some reason.
+        let hash_as_bytes = payload.block_hash().clone();
+        Ok(H256::from_slice(&hash_as_bytes.as_slice()))
     }
 
     pub async fn get_block_by_number(

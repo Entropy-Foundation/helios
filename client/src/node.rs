@@ -5,7 +5,7 @@ use std::time::Duration;
 use ethers::abi::RawLog;
 use ethers::prelude::{Address, U256};
 use ethers::types::{
-    FeeHistory, Filter, Log, SyncProgress, SyncingStatus, Transaction, TransactionReceipt, H256, U64
+    FeeHistory, Filter, Log, SyncProgress, SyncingStatus, Transaction, TransactionReceipt, H256
 };
 use eyre::{eyre, Result};
 
@@ -21,6 +21,7 @@ use execution::rpc::http_rpc::HttpRpc;
 use execution::types::{CallOpts, ExecutionBlock};
 use execution::ExecutionClient;
 
+use crate::client::BridgeEvent;
 use crate::errors::NodeError;
 
 pub struct Node {
@@ -38,35 +39,6 @@ pub struct Node {
     verified_event_cache: BTreeMap<U256, BridgeEvent>,
     // Map of verified logs indexed by (block_no, tx_index, log_index)
     // verified_log_cache: BTreeMap<(U64, U64, U256), Log>,
-}
-
-
-use ethers::abi::Log as DecodedLog;
-use serde::{Deserialize, Serialize};
-
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct BridgeEvent {
-    amount: U256,
-    #[serde(rename = "conversionDecimals")]
-    conversion_decimals: U256,
-    #[serde(rename = "conversionRate")]
-    conversion_rate: U256,
-    #[serde(rename = "foreignAddress")]
-    foreign_address: String,
-    #[serde(rename = "foreignChainId")]
-    foreign_chain_id: U256,
-    from: Address,
-    #[serde(rename = "globalActionId")]
-    global_action_id: U256,
-}
-
-impl TryFrom<DecodedLog> for BridgeEvent {
-    type Error = serde_json::Error;
-
-    fn try_from(log: DecodedLog) -> Result<Self, Self::Error> {
-        let json = serde_json::to_string(&log)?;
-        serde_json::from_str(&json)
-    }
 } 
 
 impl Node {

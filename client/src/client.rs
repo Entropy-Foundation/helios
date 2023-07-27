@@ -30,10 +30,38 @@ use wasm_bindgen_futures::spawn_local;
 
 use crate::database::Database;
 use crate::errors::NodeError;
-use crate::node::{Node, BridgeEvent};
+use crate::node::Node;
 
 #[cfg(not(target_arch = "wasm32"))]
 use crate::rpc::Rpc;
+
+use ethers::abi::Log as DecodedLog;
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BridgeEvent {
+    pub amount: U256,
+    #[serde(rename = "conversionDecimals")]
+    pub conversion_decimals: U256,
+    #[serde(rename = "conversionRate")]
+    pub conversion_rate: U256,
+    #[serde(rename = "foreignAddress")]
+    pub foreign_address: String,
+    #[serde(rename = "foreignChainId")]
+    pub foreign_chain_id: U256,
+    pub from: Address,
+    #[serde(rename = "globalActionId")]
+    pub global_action_id: U256,
+}
+
+impl TryFrom<DecodedLog> for BridgeEvent {
+    type Error = serde_json::Error;
+
+    fn try_from(log: DecodedLog) -> Result<Self, Self::Error> {
+        let json = serde_json::to_string(&log)?;
+        serde_json::from_str(&json)
+    }
+}
 
 #[derive(Default)]
 pub struct ClientBuilder {

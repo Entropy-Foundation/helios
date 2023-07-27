@@ -563,7 +563,6 @@ dependencies = [
  "jsonrpsee",
  "log",
  "serde",
- "serde_json",
  "ssz-rs",
  "thiserror",
  "tokio",
@@ -661,6 +660,7 @@ dependencies = [
  "eyre",
  "hex",
  "serde",
+ "serde_json",
  "ssz-rs",
  "thiserror",
 ]

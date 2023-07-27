@@ -1,7 +1,8 @@
-use std::fmt::Display;
-
-use serde::{de::Error, Deserialize};
+use ethers::abi::Log as DecodedLog;
+use ethers::prelude::{Address, U256};
+use serde::{de::Error, Deserialize, Serialize};
 use ssz_rs::Vector;
+use std::fmt::Display;
 
 pub type Bytes32 = Vector<u8, 32>;
 
@@ -50,5 +51,31 @@ impl<'de> Deserialize<'de> for BlockTag {
         };
 
         Ok(block_tag)
+    }
+}
+
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BridgeEvent {
+    pub amount: U256,
+    #[serde(rename = "conversionDecimals")]
+    pub conversion_decimals: U256,
+    #[serde(rename = "conversionRate")]
+    pub conversion_rate: U256,
+    #[serde(rename = "foreignAddress")]
+    pub foreign_address: String,
+    #[serde(rename = "foreignChainId")]
+    pub foreign_chain_id: U256,
+    pub from: Address,
+    #[serde(rename = "globalActionId")]
+    pub global_action_id: U256,
+}
+
+impl TryFrom<DecodedLog> for BridgeEvent {
+    type Error = serde_json::Error;
+
+    fn try_from(log: DecodedLog) -> Result<Self, Self::Error> {
+        let json = serde_json::to_string(&log)?;
+        serde_json::from_str(&json)
     }
 }

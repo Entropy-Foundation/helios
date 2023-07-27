@@ -9,7 +9,7 @@ use ethers::types::{
 };
 use eyre::{eyre, Result};
 
-use common::types::BlockTag;
+use common::types::{BlockTag, BridgeEvent};
 use config::{CheckpointFallback, Config};
 use consensus::{types::Header, ConsensusClient};
 use execution::types::{CallOpts, ExecutionBlock};
@@ -34,34 +34,6 @@ use crate::node::Node;
 
 #[cfg(not(target_arch = "wasm32"))]
 use crate::rpc::Rpc;
-
-use ethers::abi::Log as DecodedLog;
-use serde::{Deserialize, Serialize};
-
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct BridgeEvent {
-    pub amount: U256,
-    #[serde(rename = "conversionDecimals")]
-    pub conversion_decimals: U256,
-    #[serde(rename = "conversionRate")]
-    pub conversion_rate: U256,
-    #[serde(rename = "foreignAddress")]
-    pub foreign_address: String,
-    #[serde(rename = "foreignChainId")]
-    pub foreign_chain_id: U256,
-    pub from: Address,
-    #[serde(rename = "globalActionId")]
-    pub global_action_id: U256,
-}
-
-impl TryFrom<DecodedLog> for BridgeEvent {
-    type Error = serde_json::Error;
-
-    fn try_from(log: DecodedLog) -> Result<Self, Self::Error> {
-        let json = serde_json::to_string(&log)?;
-        serde_json::from_str(&json)
-    }
-}
 
 #[derive(Default)]
 pub struct ClientBuilder {

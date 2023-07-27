@@ -10,7 +10,7 @@ use ethers::types::{
 use eyre::{eyre, Result};
 
 use common::errors::BlockNotFoundError;
-use common::types::BlockTag;
+use common::types::{BlockTag, BridgeEvent};
 use config::Config;
 
 use consensus::rpc::nimbus_rpc::NimbusRpc;
@@ -21,7 +21,6 @@ use execution::rpc::http_rpc::HttpRpc;
 use execution::types::{CallOpts, ExecutionBlock};
 use execution::ExecutionClient;
 
-use crate::client::BridgeEvent;
 use crate::errors::NodeError;
 
 pub struct Node {
@@ -177,7 +176,7 @@ impl Node {
                 for log in latest_vault_event_logs {
                     match (log.block_number, log.transaction_index, log.log_index) {
                         (Some(block_no), Some(tx_index), Some(log_index)) => {
-                            let id = (block_no, tx_index, log_index);
+                            // let id = (block_no, tx_index, log_index);
                             // TODO: Remove
                             // self.verified_log_cache.insert(id, log);
 

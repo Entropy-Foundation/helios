@@ -599,11 +599,11 @@ impl<DB: Database> Client<DB> {
         self.node.read().await.get_bridge_events()
     }
 
-    async fn verify_bridge_events(&mut self, events: Vec<U256>) -> bool {
+    pub async fn verify_bridge_events(&mut self, events: Vec<U256>) -> bool {
         self.node.read().await.verify_bridge_events(events)
     }
 
-    async fn cleanup_bridge_events(&mut self, events: Vec<U256>) {
+    pub async fn cleanup_bridge_events(&mut self, events: Vec<U256>) {
         self.node.write().await.cleanup_bridge_events(events)
     }
 }

@@ -681,7 +681,6 @@ dependencies = [
  "serde_yaml",
  "ssz-rs",
  "strum",
- "strum_macros",
  "thiserror",
  "tokio",
 ]
@@ -2258,8 +2257,6 @@ dependencies = [
  "log",
  "plotters",
  "serde",
- "strum",
- "strum_macros",
  "tempfile",
  "tokio",
  "tracing-test",

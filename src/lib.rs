@@ -77,7 +77,3 @@ pub mod prelude {
     pub use crate::errors::*;
     pub use crate::types::*;
 }
-
-// extern crate strum;
-// #[macro_use]
-// extern crate strum_macros;

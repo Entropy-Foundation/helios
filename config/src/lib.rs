@@ -24,7 +24,3 @@ pub use types::*;
 
 /// Generic Utilities
 pub mod utils;
-
-// extern crate strum;
-// #[macro_use]
-// extern crate strum_macros;

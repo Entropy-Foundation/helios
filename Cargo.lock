@@ -681,6 +681,7 @@ dependencies = [
  "serde_yaml",
  "ssz-rs",
  "strum",
+ "strum_macros",
  "thiserror",
  "tokio",
 ]

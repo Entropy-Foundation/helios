@@ -114,8 +114,10 @@ impl Node {
             .unwrap()
     }
 
-    // TODO: Should return events only after event with given ID?
     pub fn get_bridge_events(&self) -> Vec<BridgeEvent> {
+        // Currently just return all events that we are aware of.
+        // Block proposer can handle filtering out events that are already
+        // undergoing consensus.
         return self.verified_event_cache.values().cloned().collect();
     }
 
@@ -127,6 +129,7 @@ impl Node {
 
     // Should only be invoked with events that have been included in a block that has been finalized by the SMR.
     pub fn cleanup_bridge_events(&mut self, events: Vec<BridgeEvent>) {
+        // Invoked by the SMR when a new block is committed.
         for event in events {
             self.verified_event_cache.remove(&event.global_action_id);
         }
@@ -176,20 +179,10 @@ impl Node {
 
                 // Parse the new logs and add the events to the cache.
                 for log in latest_vault_event_logs {
-                    match (log.block_number, log.transaction_index, log.log_index) {
-                        (Some(block_no), Some(tx_index), Some(log_index)) => {
-                            // let id = (block_no, tx_index, log_index);
-                            // TODO: Remove
-                            // self.verified_log_cache.insert(id, log);
-
-                            let raw_log = RawLog::from(log);
-                            let decoded_log = bridge_event.parse_log(raw_log)?;
-                            let event = BridgeEvent::try_from(decoded_log)?;
-                            self.verified_event_cache.insert(event.global_action_id, event);
-                            
-                        },
-                        _ => log::warn!("Missing block number or transaction index for log: {:?}", log)
-                    }
+                    let raw_log = RawLog::from(log);
+                    let decoded_log = bridge_event.parse_log(raw_log)?;
+                    let event = BridgeEvent::try_from(decoded_log)?;
+                    self.verified_event_cache.insert(event.global_action_id, event);
                 }
 
                 log::info!(

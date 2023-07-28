@@ -26,4 +26,5 @@ pub use types::*;
 pub mod utils;
 
 extern crate strum;
+#[macro_use]
 extern crate strum_macros;

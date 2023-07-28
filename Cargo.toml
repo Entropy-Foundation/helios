@@ -29,6 +29,8 @@ common = { path = "./common" }
 consensus = { path = "./consensus" }
 execution = { path = "./execution" }
 serde = { version = "1.0.154", features = ["derive"] }
+strum = { version = "0.24", features = ["derive"] }
+strum_macros = "0.24.1"
 
 [dev-dependencies]
 tokio = { version = "1", features = ["full"] }

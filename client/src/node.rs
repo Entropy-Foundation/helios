@@ -64,7 +64,7 @@ impl Node {
             // TODO: Make both of the below configurable by the user.
             finalized_only: true,
             // Track the last two epochs.
-            history_size: 128,
+            history_size: 64,
             verified_event_cache: BTreeMap::new(),
         })
     }

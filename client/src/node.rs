@@ -282,6 +282,12 @@ impl Node {
         let finalized_header = self.consensus.get_finalized_header();
         let finalized_payload = self.get_execution_payload(finalized_header.slot).await?;
 
+        log::info!(
+            "Latest finalized slot {}. Block number: {}", 
+            finalized_header.slot, 
+            finalized_payload.block_number()
+        );
+
         self.payloads
             .insert(*finalized_payload.block_number(), finalized_payload.clone());
         self.finalized_payloads

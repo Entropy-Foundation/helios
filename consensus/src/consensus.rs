@@ -548,6 +548,8 @@ impl<R: ConsensusRpc> ConsensusClient<R> {
         slot * 12 + self.config.chain.genesis_time
     }
 
+    // TODO: Update this for finalized only. Or make equivalent function.
+
     /// Gets the duration until the next update
     /// Updates are scheduled for 4 seconds into each slot
     pub fn duration_until_next_update(&self) -> Duration {
@@ -561,7 +563,9 @@ impl<R: ConsensusRpc> ConsensusClient<R> {
             .as_secs();
 
         let time_to_next_slot = next_slot_timestamp - now;
-        let next_update = time_to_next_slot + 4;
+        // TODO: Update. Wait for 8 blocks for now. Should be 4 when we want optimistic updates
+        // and should be increased to closer to epoch length when we only care about finalised updated.
+        let next_update = time_to_next_slot + 4 * 8;
 
         Duration::seconds(next_update as i64)
     }

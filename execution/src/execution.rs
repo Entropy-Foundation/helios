@@ -217,7 +217,7 @@ impl<R: ExecutionRpc> ExecutionClient<R> {
         let block_number = receipt.block_number.unwrap().as_u64();
         let payload = payloads.get(&block_number);
         if payload.is_none() {
-            log::info!("Could not get payload for tx block. Receipt block no {}. Have payloads for: {:?}", block_number, payloads.keys());
+            log::info!("Do not have payload for tx block in current history. Receipt block no {}. Have payloads for: {:?}", block_number, payloads.keys());
             return Ok(None);
         }
 

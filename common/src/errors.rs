@@ -1,3 +1,4 @@
+use ethers::abi::Log as DecodedLog;
 use ethers::types::H256;
 use thiserror::Error;
 
@@ -40,5 +41,17 @@ impl<E: ToString> RpcError<E> {
             method: method.to_string(),
             error: err,
         }
+    }
+}
+
+#[derive(Debug, Error)]
+#[error("Error converting DecodedLog to BridgeEvent. Log is: {:?}", self.log)]
+pub struct BridgeEventParseError {
+    log: DecodedLog,
+}
+
+impl BridgeEventParseError {
+    pub fn new(log: DecodedLog) -> Self {
+        Self { log }
     }
 }

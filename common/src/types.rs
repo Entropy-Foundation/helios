@@ -4,6 +4,8 @@ use serde::{de::Error, Deserialize, Serialize};
 use ssz_rs::Vector;
 use std::fmt::Display;
 
+use crate::errors::BridgeEventParseError;
+
 pub type Bytes32 = Vector<u8, 32>;
 
 #[derive(Debug, Clone, Copy)]
@@ -72,10 +74,44 @@ pub struct BridgeEvent {
 }
 
 impl TryFrom<DecodedLog> for BridgeEvent {
-    type Error = serde_json::Error;
+    type Error = BridgeEventParseError;
 
     fn try_from(log: DecodedLog) -> Result<Self, Self::Error> {
-        let json = serde_json::to_string(&log)?;
-        serde_json::from_str(&json)
+        let mut result = Self::default();
+
+        // Manually parse the struct. TODO: Check if there is a better way to do this.
+        // Rupansh suggested using the abigen macro, but have not had the time to check yet.
+        for param in &log.params {
+            let mut v = param.value.clone();
+
+            let parsable = match param.name.as_str() {
+                "amount" 
+                    | "conversionDecimals" 
+                    | "conversionRate" 
+                    | "foreignChainId" 
+                    | "globalActionId" => v.into_uint().is_some(),
+                "foreignAddress" => v.into_string().is_some(),
+                _ => true   // Ignore other params.
+            };
+
+            if ! parsable {
+                return Err(BridgeEventParseError::new(log));
+            }
+
+            // Restore moved value.
+            v = param.value.clone();
+
+            match param.name.as_str() {
+                "amount" => result.amount = v.into_uint().unwrap(),
+                "conversionDecimals" => result.conversion_decimals = v.into_uint().unwrap(),
+                "conversionRate" => result.conversion_rate = v.into_uint().unwrap(),
+                "foreignAddress" => result.foreign_address = v.into_string().unwrap(),
+                "foreignChainId" => result.foreign_chain_id = v.into_uint().unwrap(),
+                "globalActionId" => result.global_action_id = v.into_uint().unwrap(),
+                _ => ()
+            }
+        }
+
+        Ok(result)
     }
 }

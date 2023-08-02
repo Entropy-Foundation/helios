@@ -57,10 +57,14 @@ async fn main() -> Result<()> {
 
     c.start().await?;
 
+    log::info!(
+        "Started client"
+    );
+
     // TODO: Address is currently Uniswap v3 Factory
-    let eth_vault_contract_addr = "0x1a4fF088Af61F4564d43b7060cc4bE0274Bdd3d4".parse::<Address>().unwrap();
+    let eth_vault_contract_addr = "0x7AacAa857584adA08ABB2bAA8f1C2094D4Ecb3bF".parse::<Address>().unwrap();
     // let last_final_block_hash = c.get_block_hash(BlockTag::Finalized).await?;
-    let start_block = 9410085u64;
+    let start_block = 9449965u64;
     let vault_event_filter = Filter::new()
         .from_block(start_block)
         .to_block(start_block)

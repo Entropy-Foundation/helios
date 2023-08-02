@@ -31,13 +31,11 @@ pub struct Node {
     finalized_payloads: BTreeMap<u64, ExecutionPayload>,
     current_slot: Option<u64>,
     pub history_size: usize,
-    
     last_processed: u64,
+    pub finalized_only: bool,
     // Map of verified BridgeEvents indexed by their global_action_id, which is
     // an identifier intended to be unique across all chains.
     verified_event_cache: BTreeMap<U256, BridgeEvent>,
-    // Map of verified logs indexed by (block_no, tx_index, log_index)
-    // verified_log_cache: BTreeMap<(U64, U64, U256), Log>,
 } 
 
 impl Node {
@@ -62,9 +60,11 @@ impl Node {
             payloads,
             finalized_payloads,
             current_slot: None,
-            history_size: 64,
-
             last_processed: 0,
+            // TODO: Make both of the below configurable by the user.
+            finalized_only: true,
+            // Track the last two epochs.
+            history_size: 128,
             verified_event_cache: BTreeMap::new(),
         })
     }
@@ -135,22 +135,31 @@ impl Node {
         }
     }
 
-    async fn check_latest_events(&mut self, initial_sync: bool) -> Result<()> {
-        // TODO: Add address
-        let eth_vault_contract_addr = "0x05fdBac96C17026c71681150aa44Cbd0DDDd3374".parse::<Address>().unwrap();
+    async fn check_latest_events(
+        &mut self, 
+        initial_sync: bool
+    ) -> Result<()> {
+        let payloads = 
+            if self.finalized_only {
+                &self.finalized_payloads
+            } else {
+                &self.payloads
+            };
+
+        let eth_vault_contract_addr = "0x7AacAa857584adA08ABB2bAA8f1C2094D4Ecb3bF".parse::<Address>().unwrap();
         let human_readable_event_abi = [
             "event Bridgeless(uint256 globalActionId, address from, string foreignAddress, uint256 foreignChainId, uint256 amount, uint256 conversionRate, uint256 conversionDecimals)"
         ];
         let abi = ethers::abi::parse_abi(&human_readable_event_abi).unwrap();
         let bridge_event = abi.event("Bridgeless").unwrap();
 
-        log::info!("Have {} payloads during check", self.payloads.len());
+        log::info!("Have {} payloads during check", payloads.len());
 
         // Newest block in our current history that we haven't already processed. 
         // BTreeMap keys are sorted, so find works here.
-        if let Some(start_block) = self.payloads.keys().find(|k| **k > self.last_processed) {
+        if let Some(start_block) = payloads.keys().find(|k| **k > self.last_processed) {
             // Newest block in our current history.
-            if let Some(end_block) = self.payloads.last_key_value() {
+            if let Some(end_block) = payloads.last_key_value() {
                 log::info!(
                     "Attempting to retrieve logs for blocks: {}-{}",
                     *start_block,
@@ -167,9 +176,9 @@ impl Node {
                 // data for.
                 let latest_vault_event_logs = 
                     if initial_sync {
-                        self.execution.get_logs_unlimited(&vault_event_filter, &self.payloads).await?
+                        self.execution.get_logs_unlimited(&vault_event_filter, &payloads).await?
                     } else {
-                        self.execution.get_logs(&vault_event_filter, &self.payloads).await?
+                        self.execution.get_logs(&vault_event_filter, &payloads).await?
                     };
 
                 log::info!(
@@ -180,8 +189,11 @@ impl Node {
                 // Parse the new logs and add the events to the cache.
                 for log in latest_vault_event_logs {
                     let raw_log = RawLog::from(log);
+                    log::info!("Raw log: {:?}", raw_log);
                     let decoded_log = bridge_event.parse_log(raw_log)?;
+                    log::info!("Decoded log: {:?}", decoded_log);
                     let event = BridgeEvent::try_from(decoded_log)?;
+                    log::info!("BridgeEvent: {:?}", event);
                     self.verified_event_cache.insert(event.global_action_id, event);
                 }
 
@@ -199,20 +211,28 @@ impl Node {
         Ok(())
     }
 
-    async fn update_payloads(&mut self) -> Result<(), NodeError> {
-        let latest_header = self.consensus.get_header();
-        let latest_payload = self
+    async fn get_execution_payload(&self, slot: u64) -> Result<ExecutionPayload, NodeError> {
+        self
             .consensus
-            .get_execution_payload(&Some(latest_header.slot))
+            .get_execution_payload(&Some(slot))
             .await
-            .map_err(NodeError::ConsensusPayloadError)?;
+            .map_err(NodeError::ConsensusPayloadError)
+    }
+
+    async fn update_payloads(&mut self) -> Result<(), NodeError> {
+        if self.finalized_only {
+            self.update_finalized_payloads_only().await
+        } else {
+            self.update_optimistic_and_finalized_payloads().await
+        }
+    }
+
+    async fn update_optimistic_and_finalized_payloads(&mut self) -> Result<(), NodeError> {
+        let latest_header = self.consensus.get_header();
+        let latest_payload = self.get_execution_payload(latest_header.slot).await?;
 
         let finalized_header = self.consensus.get_finalized_header();
-        let finalized_payload = self
-            .consensus
-            .get_execution_payload(&Some(finalized_header.slot))
-            .await
-            .map_err(NodeError::ConsensusPayloadError)?;
+        let finalized_payload = self.get_execution_payload(finalized_header.slot).await?;
 
         self.payloads
             .insert(*latest_payload.block_number(), latest_payload);
@@ -253,6 +273,51 @@ impl Node {
             self.finalized_payloads.pop_first();
         }
 
+        Ok(())
+    }
+
+    async fn update_finalized_payloads_only(&mut self) -> Result<(), NodeError> {
+        // Hacky solution to ensure that we only read finalized data. TODO: Improve.
+
+        let finalized_header = self.consensus.get_finalized_header();
+        let finalized_payload = self.get_execution_payload(finalized_header.slot).await?;
+
+        self.payloads
+            .insert(*finalized_payload.block_number(), finalized_payload.clone());
+        self.finalized_payloads
+            .insert(*finalized_payload.block_number(), finalized_payload);
+
+        let start_slot = self
+            .current_slot
+            .unwrap_or(finalized_header.slot - self.history_size as u64);
+        let backfill_payloads = self
+            .consensus
+            .get_payloads(start_slot, finalized_header.slot)
+            .await
+            .map_err(NodeError::ConsensusPayloadError)?;
+
+        log::info!("Received {} new payloads", backfill_payloads.len());
+
+        for payload in backfill_payloads {
+            let block_no = *payload.block_number();
+            // TODO: Refine this. No need to duplicate payloads across both.
+            self.payloads.insert(block_no, payload.clone());
+            self.finalized_payloads.insert(block_no, payload);
+        }
+
+        log::info!("Have {} payloads", self.payloads.len());
+
+        self.current_slot = Some(finalized_header.slot);
+
+        while self.payloads.len() > self.history_size {
+            self.payloads.pop_first();
+        }
+
+        while self.finalized_payloads.len() > self.history_size {
+            self.finalized_payloads.pop_first();
+        }
+
+        log::info!("Have {} payloads after prune", self.payloads.len());
         Ok(())
     }
 

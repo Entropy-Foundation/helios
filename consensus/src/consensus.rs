@@ -565,7 +565,7 @@ impl<R: ConsensusRpc> ConsensusClient<R> {
         let time_to_next_slot = next_slot_timestamp - now;
         // TODO: Update. Wait for 8 blocks for now. Should be 4 when we want optimistic updates
         // and should be increased to closer to epoch length when we only care about finalised updated.
-        let next_update = time_to_next_slot + 4 * 8;
+        let next_update = time_to_next_slot + 4 * 16;
 
         Duration::seconds(next_update as i64)
     }

@@ -24,6 +24,8 @@ use execution::ExecutionClient;
 use crate::errors::NodeError;
 
 pub struct Node {
+    // Identifier for this node to enable log filtering for the PoC.
+    id: u16,
     pub consensus: ConsensusClient<NimbusRpc>,
     pub execution: Arc<ExecutionClient<HttpRpc>>,
     pub config: Arc<Config>,
@@ -54,6 +56,7 @@ impl Node {
         let finalized_payloads = BTreeMap::new();
 
         Ok(Node {
+            id: rand::random(),
             consensus,
             execution,
             config,
@@ -146,14 +149,14 @@ impl Node {
                 &self.payloads
             };
 
-        let eth_vault_contract_addr = "0x7AacAa857584adA08ABB2bAA8f1C2094D4Ecb3bF".parse::<Address>().unwrap();
+        let eth_vault_contract_addr = "0x2052af9de2bf43b68d89031bac020e1e741a8114".parse::<Address>().unwrap();
         let human_readable_event_abi = [
             "event Bridgeless(uint256 globalActionId, address from, string foreignAddress, uint256 foreignChainId, uint256 amount, uint256 conversionRate, uint256 conversionDecimals)"
         ];
         let abi = ethers::abi::parse_abi(&human_readable_event_abi).unwrap();
         let bridge_event = abi.event("Bridgeless").unwrap();
 
-        log::info!("Have {} payloads during check", payloads.len());
+        // log::info!("Have {} payloads during check", payloads.len());
 
         // Newest block in our current history that we haven't already processed. 
         // BTreeMap keys are sorted, so find works here.
@@ -161,7 +164,8 @@ impl Node {
             // Newest block in our current history.
             if let Some(end_block) = payloads.last_key_value() {
                 log::info!(
-                    "Attempting to retrieve logs for blocks: {}-{}",
+                    "Node{} Attempting to retrieve logs for blocks: {}-{}",
+                    self.id,
                     *start_block,
                     *end_block.0
                 );
@@ -181,19 +185,29 @@ impl Node {
                         self.execution.get_logs(&vault_event_filter, &payloads).await?
                     };
 
-                log::info!(
-                    "Received {} new logs",
-                    latest_vault_event_logs.len(),
-                );
+                if ! latest_vault_event_logs.is_empty() {
+                    log::info!(
+                        "VaultWatcher observed {} new bridge transactions: Node{}",
+                        latest_vault_event_logs.len(),
+                        self.id
+                    );  
+                }
 
                 // Parse the new logs and add the events to the cache.
                 for log in latest_vault_event_logs {
+                    let tx_hash = log.transaction_hash.unwrap();    // TODO
                     let raw_log = RawLog::from(log);
-                    log::info!("Raw log: {:?}", raw_log);
+                    // log::info!("Raw log: {:?}", raw_log);
                     let decoded_log = bridge_event.parse_log(raw_log)?;
-                    log::info!("Decoded log: {:?}", decoded_log);
+                    // log::info!("Decoded log: {:?}", decoded_log);
                     let event = BridgeEvent::try_from(decoded_log)?;
-                    log::info!("BridgeEvent: {:?}", event);
+                    // log::info!("BridgeEvent: {:?}", event);
+                    log::info!(
+                        "Tx {} with {} Node{}",
+                        tx_hash,
+                        event.pretty_print_string(),
+                        self.id
+                    );
                     self.verified_event_cache.insert(event.global_action_id, event);
                 }
 
